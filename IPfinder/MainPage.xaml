@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:IPfinder"
+             x:Class="IPfinder.MainPage"
+             Title="Cloudflare IP Finder">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Label Text="IP Scanner (Cloudflare &amp; VPS)" FontSize="24" FontAttributes="Bold" />
+
+            <Border StrokeShape="RoundRectangle 10" 
+                    BackgroundColor="#F0F8FF" 
+                    Padding="15" 
+                    StrokeThickness="0">
+                <VerticalStackLayout HorizontalOptions="Center">
+                    <Label x:Name="MyIpLabel" 
+                           Text="در حال دریافت اطلاعات آی‌پی..." 
+                           TextColor="DarkBlue" 
+                           FontSize="16" 
+                           FontAttributes="Bold" 
+                           HorizontalTextAlignment="Center" />
+                    <Label x:Name="MyCountryLabel" 
+                           Text="Location: --" 
+                           TextColor="Gray" 
+                           FontSize="13" 
+                           HorizontalTextAlignment="Center" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                <VerticalStackLayout Grid.Column="0">
+                    <Label Text="Start IP" />
+                    <Entry x:Name="StartIpEntry" Text="172.64.0.0" />
+                </VerticalStackLayout>
+                <VerticalStackLayout Grid.Column="1">
+                    <Label Text="End IP" />
+                    <Entry x:Name="EndIpEntry" Text="172.64.0.255" />
+                </VerticalStackLayout>
+                <VerticalStackLayout Grid.Column="2">
+                    <Label Text="Port" />
+                    <Entry x:Name="PortEntry" Text="443" Keyboard="Numeric" />
+                </VerticalStackLayout>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <VerticalStackLayout Grid.Column="0">
+                    <Label Text="Timeout (ms)" />
+                    <Entry x:Name="TimeoutEntry" Text="1000" Keyboard="Numeric" />
+                </VerticalStackLayout>
+                <VerticalStackLayout Grid.Column="1">
+                    <Label Text="Concurrency" />
+                    <Entry x:Name="ConcurrencyEntry" Text="32" Keyboard="Numeric" />
+                </VerticalStackLayout>
+            </Grid>
+
+            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                <Button x:Name="StartButton" Text="Start Scan" Clicked="OnStartClicked" BackgroundColor="DarkBlue" />
+                <Button x:Name="StopButton" Text="Stop" Clicked="OnStopClicked" IsEnabled="False" />
+                <Button x:Name="ClearButton" Text="Clear" Clicked="OnClearClicked" />
+            </HorizontalStackLayout>
+
+            <Label x:Name="StatusLabel" Text="Ready." HorizontalTextAlignment="Center" />
+
+            <CollectionView x:Name="ResultsView" ItemsSource="{Binding Results}" HeightRequest="400">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="local:ScanResult">
+                        <Border Padding="10" Margin="0,5">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                <Label Text="{Binding IpAddress}" FontAttributes="Bold" />
+                                <Label Grid.Column="1" Text="{Binding RoundTripText}" Margin="10,0" />
+                                <Label Grid.Column="2" Text="{Binding Status}" TextColor="Green" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

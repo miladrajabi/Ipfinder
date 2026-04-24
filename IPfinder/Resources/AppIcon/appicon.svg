@@ -1,0 +1,20 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+	<rect width="512" height="512" rx="110" fill="#003366"/>
+
+	<circle cx="150" cy="150" r="8" fill="#4DA6FF" fill-opacity="0.6"/>
+	<circle cx="362" cy="150" r="8" fill="#4DA6FF" fill-opacity="0.6"/>
+	<circle cx="150" cy="362" r="8" fill="#4DA6FF" fill-opacity="0.6"/>
+	<circle cx="362" cy="362" r="8" fill="#4DA6FF" fill-opacity="0.6"/>
+
+	<line x1="150" y1="150" x2="362" y2="150" stroke="#4DA6FF" stroke-opacity="0.3" stroke-width="4"/>
+	<line x1="150" y1="150" x2="150" y2="362" stroke="#4DA6FF" stroke-opacity="0.3" stroke-width="4"/>
+	<line x1="362" y1="150" x2="362" y2="362" stroke="#4DA6FF" stroke-opacity="0.3" stroke-width="4"/>
+	<line x1="150" y1="362" x2="362" y2="362" stroke="#4DA6FF" stroke-opacity="0.3" stroke-width="4"/>
+
+	<circle cx="236" cy="236" r="80" stroke="white" stroke-width="24"/>
+	<line x1="294" y1="294" x2="380" y2="380" stroke="white" stroke-width="24" stroke-linecap="round"/>
+
+	<circle cx="236" cy="236" r="25" fill="#00FFCC">
+		<animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite" />
+	</circle>
+</svg>
