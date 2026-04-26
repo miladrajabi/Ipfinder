@@ -3,78 +3,459 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:IPfinder"
              x:Class="IPfinder.MainPage"
-             Title="Cloudflare IP Finder">
+             Title="Cloudflare IP Finder"
+             BackgroundColor="#F5F7FB">
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <Label Text="IP Scanner (Cloudflare &amp; VPS)" FontSize="24" FontAttributes="Bold" />
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <Style x:Key="CaptionLabelStyle" TargetType="Label">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontAttributes" Value="Bold" />
+                <Setter Property="TextColor" Value="#667085" />
+            </Style>
 
-            <Border StrokeShape="RoundRectangle 10" 
-                    BackgroundColor="#F0F8FF" 
-                    Padding="15" 
-                    StrokeThickness="0">
-                <VerticalStackLayout HorizontalOptions="Center">
-                    <Label x:Name="MyIpLabel" 
-                           Text="در حال دریافت اطلاعات آی‌پی..." 
-                           TextColor="DarkBlue" 
-                           FontSize="16" 
-                           FontAttributes="Bold" 
-                           HorizontalTextAlignment="Center" />
-                    <Label x:Name="MyCountryLabel" 
-                           Text="Location: --" 
-                           TextColor="Gray" 
-                           FontSize="13" 
-                           HorizontalTextAlignment="Center" />
+            <Style x:Key="InputCardStyle" TargetType="Border">
+                <Setter Property="BackgroundColor" Value="White" />
+                <Setter Property="Stroke" Value="#E4E7EC" />
+                <Setter Property="StrokeThickness" Value="1" />
+                <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+                <Setter Property="Padding" Value="14,10" />
+            </Style>
+
+            <Style x:Key="ScanEntryStyle" TargetType="Entry">
+                <Setter Property="BackgroundColor" Value="Transparent" />
+                <Setter Property="TextColor" Value="#101828" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="HeightRequest" Value="36" />
+                <Setter Property="Margin" Value="0,2,0,0" />
+            </Style>
+
+            <Style x:Key="CommandButtonStyle" TargetType="Button">
+                <Setter Property="HeightRequest" Value="46" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Padding" Value="18,0" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontAttributes" Value="Bold" />
+            </Style>
+        </ResourceDictionary>
+    </ContentPage.Resources>
+
+    <ScrollView VerticalScrollBarVisibility="Always">
+        <Grid x:Name="RootGrid"
+              Padding="28,24,28,32"
+              RowDefinitions="Auto,Auto,Auto,Auto"
+              RowSpacing="18"
+              MaximumWidthRequest="1180"
+              HorizontalOptions="Center">
+
+            <Grid x:Name="HeaderGrid" ColumnDefinitions="*,Auto" ColumnSpacing="18">
+                <VerticalStackLayout Spacing="4">
+                    <Label x:Name="PageTitleLabel"
+                           Text="Cloudflare IP Finder"
+                           FontSize="32"
+                           FontAttributes="Bold"
+                           TextColor="#0B1226" />
+                    <Label x:Name="PageSubtitleLabel"
+                           Text="Scan Cloudflare and VPS ranges with a clean, focused control panel."
+                           FontSize="14"
+                           TextColor="#667085" />
                 </VerticalStackLayout>
+
+                <Border x:Name="HeaderBadge"
+                        Grid.Column="1"
+                        BackgroundColor="#EFF6FF"
+                        Stroke="#BFDBFE"
+                        StrokeShape="RoundRectangle 18"
+                        Padding="12,7"
+                        VerticalOptions="Center">
+                    <HorizontalStackLayout Spacing="7">
+                        <Label Text="●" TextColor="#2E90FA" FontSize="12" VerticalOptions="Center" />
+                        <Label Text="TCP Scanner"
+                               TextColor="#1D4ED8"
+                               FontSize="13"
+                               FontAttributes="Bold"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </Border>
+            </Grid>
+
+            <Border x:Name="IpInfoCard"
+                    Grid.Row="1"
+                    Padding="22"
+                    StrokeThickness="0"
+                    StrokeShape="RoundRectangle 24">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#08111F" Offset="0.0" />
+                        <GradientStop Color="#123C69" Offset="0.58" />
+                        <GradientStop Color="#0E7490" Offset="1.0" />
+                    </LinearGradientBrush>
+                </Border.Background>
+                <Border.Shadow>
+                    <Shadow Brush="#1A0B1226" Offset="0,10" Radius="20" Opacity="0.20" />
+                </Border.Shadow>
+
+                <Grid RowDefinitions="Auto,Auto,Auto"
+                      ColumnDefinitions="Auto,*,Auto"
+                      ColumnSpacing="12"
+                      RowSpacing="8">
+                    <Label Grid.ColumnSpan="3"
+                           Text="PUBLIC ADDRESS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.4"
+                           TextColor="#A7F3D0" />
+
+                    <Border Grid.Row="1"
+                            WidthRequest="40"
+                            HeightRequest="40"
+                            StrokeThickness="0"
+                            BackgroundColor="#22D3EE"
+                            StrokeShape="RoundRectangle 20"
+                            VerticalOptions="Center">
+                        <Label Text="🌐"
+                               FontSize="20"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+                    </Border>
+
+                    <Label x:Name="MyIpLabel"
+                           Grid.Row="1"
+                           Grid.Column="1"
+                           Text="در حال دریافت اطلاعات آی‌پی..."
+                           TextColor="White"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           LineBreakMode="TailTruncation"
+                           VerticalOptions="Center" />
+
+                    <Button x:Name="RefreshIpButton"
+                            Grid.Row="1"
+                            Grid.Column="2"
+                            Text="⟳"
+                            Clicked="OnRefreshIpClicked"
+                            WidthRequest="42"
+                            HeightRequest="42"
+                            Padding="0"
+                            CornerRadius="21"
+                            FontSize="22"
+                            FontAttributes="Bold"
+                            TextColor="#0B1226"
+                            BackgroundColor="#E0F2FE"
+                            VerticalOptions="Center"
+                            SemanticProperties.Description="Refresh IP" />
+
+                    <Label x:Name="MyCountryLabel"
+                           Grid.Row="2"
+                           Grid.ColumnSpan="3"
+                           Text="Location: --"
+                           TextColor="#D6E4FF"
+                           FontSize="14"
+                           MaxLines="2"
+                           LineBreakMode="WordWrap" />
+                </Grid>
             </Border>
 
-            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
-                <VerticalStackLayout Grid.Column="0">
-                    <Label Text="Start IP" />
-                    <Entry x:Name="StartIpEntry" Text="172.64.0.0" />
-                </VerticalStackLayout>
-                <VerticalStackLayout Grid.Column="1">
-                    <Label Text="End IP" />
-                    <Entry x:Name="EndIpEntry" Text="172.64.0.255" />
-                </VerticalStackLayout>
-                <VerticalStackLayout Grid.Column="2">
-                    <Label Text="Port" />
-                    <Entry x:Name="PortEntry" Text="443" Keyboard="Numeric" />
-                </VerticalStackLayout>
-            </Grid>
+            <Border x:Name="ScanSetupCard"
+                    Grid.Row="2"
+                    BackgroundColor="White"
+                    Stroke="#E4E7EC"
+                    StrokeShape="RoundRectangle 22"
+                    Padding="20">
+                <Border.Shadow>
+                    <Shadow Brush="#140B1226" Offset="0,8" Radius="18" Opacity="0.12" />
+                </Border.Shadow>
 
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                <VerticalStackLayout Grid.Column="0">
-                    <Label Text="Timeout (ms)" />
-                    <Entry x:Name="TimeoutEntry" Text="1000" Keyboard="Numeric" />
-                </VerticalStackLayout>
-                <VerticalStackLayout Grid.Column="1">
-                    <Label Text="Concurrency" />
-                    <Entry x:Name="ConcurrencyEntry" Text="32" Keyboard="Numeric" />
-                </VerticalStackLayout>
-            </Grid>
+                <Grid x:Name="ScanSetupGrid" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="18">
+                    <Grid x:Name="ScanHeaderGrid" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Scan setup"
+                                   FontSize="20"
+                                   FontAttributes="Bold"
+                                   TextColor="#101828" />
+                            <Label x:Name="ScanSubtitleLabel"
+                                   Text="Choose an IP range, port, timeout, and parallel connections."
+                                   FontSize="13"
+                                   TextColor="#667085" />
+                        </VerticalStackLayout>
 
-            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
-                <Button x:Name="StartButton" Text="Start Scan" Clicked="OnStartClicked" BackgroundColor="DarkBlue" />
-                <Button x:Name="StopButton" Text="Stop" Clicked="OnStopClicked" IsEnabled="False" />
-                <Button x:Name="ClearButton" Text="Clear" Clicked="OnClearClicked" />
-            </HorizontalStackLayout>
-
-            <Label x:Name="StatusLabel" Text="Ready." HorizontalTextAlignment="Center" />
-
-            <CollectionView x:Name="ResultsView" ItemsSource="{Binding Results}" HeightRequest="400">
-                <CollectionView.ItemTemplate>
-                    <DataTemplate x:DataType="local:ScanResult">
-                        <Border Padding="10" Margin="0,5">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                <Label Text="{Binding IpAddress}" FontAttributes="Bold" />
-                                <Label Grid.Column="1" Text="{Binding RoundTripText}" Margin="10,0" />
-                                <Label Grid.Column="2" Text="{Binding Status}" TextColor="Green" />
-                            </Grid>
+                        <Border x:Name="ScanModeBadge"
+                                Grid.Column="1"
+                                BackgroundColor="#EFF6FF"
+                                Stroke="#BFDBFE"
+                                StrokeShape="RoundRectangle 16"
+                                Padding="12,7"
+                                VerticalOptions="Center">
+                            <HorizontalStackLayout Spacing="7">
+                                <Label Text="⚙" FontSize="13" VerticalOptions="Center" />
+                                <Label Text="TCP"
+                                       FontSize="13"
+                                       FontAttributes="Bold"
+                                       TextColor="#1D4ED8"
+                                       VerticalOptions="Center" />
+                            </HorizontalStackLayout>
                         </Border>
-                    </DataTemplate>
-                </CollectionView.ItemTemplate>
-            </CollectionView>
-        </VerticalStackLayout>
+                    </Grid>
+
+                    <Grid x:Name="AddressInputsGrid"
+                          Grid.Row="1"
+                          ColumnDefinitions="*,*,0.55*"
+                          ColumnSpacing="12">
+                        <Border x:Name="StartIpCard" Style="{StaticResource InputCardStyle}">
+                            <VerticalStackLayout Spacing="0">
+                                <Label Text="Start IP" Style="{StaticResource CaptionLabelStyle}" />
+                                <Entry x:Name="StartIpEntry"
+                                       Text="188.114.96.0"
+                                       Style="{StaticResource ScanEntryStyle}" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <Border x:Name="EndIpCard" Grid.Column="1" Style="{StaticResource InputCardStyle}">
+                            <VerticalStackLayout Spacing="0">
+                                <Label Text="End IP" Style="{StaticResource CaptionLabelStyle}" />
+                                <Entry x:Name="EndIpEntry"
+                                       Text="188.114.99.255"
+                                       Style="{StaticResource ScanEntryStyle}" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <Border x:Name="PortCard" Grid.Column="2" Style="{StaticResource InputCardStyle}">
+                            <VerticalStackLayout Spacing="0">
+                                <Label Text="Port" Style="{StaticResource CaptionLabelStyle}" />
+                                <Entry x:Name="PortEntry"
+                                       Text="443"
+                                       Keyboard="Numeric"
+                                       Style="{StaticResource ScanEntryStyle}" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </Grid>
+
+                    <Grid x:Name="OptionsInputsGrid"
+                          Grid.Row="2"
+                          ColumnDefinitions="*,*"
+                          ColumnSpacing="12">
+                        <Border x:Name="TimeoutCard" Style="{StaticResource InputCardStyle}">
+                            <VerticalStackLayout Spacing="0">
+                                <Label Text="Timeout (ms)" Style="{StaticResource CaptionLabelStyle}" />
+                                <Entry x:Name="TimeoutEntry"
+                                       Text="1000"
+                                       Keyboard="Numeric"
+                                       Style="{StaticResource ScanEntryStyle}" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <Border x:Name="ConcurrencyCard" Grid.Column="1" Style="{StaticResource InputCardStyle}">
+                            <VerticalStackLayout Spacing="0">
+                                <Label Text="Concurrency" Style="{StaticResource CaptionLabelStyle}" />
+                                <Entry x:Name="ConcurrencyEntry"
+                                       Text="32"
+                                       Keyboard="Numeric"
+                                       Style="{StaticResource ScanEntryStyle}" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </Grid>
+
+                    <Grid x:Name="ScanControlsGrid"
+                          Grid.Row="3"
+                          ColumnDefinitions="*,Auto"
+                          ColumnSpacing="14">
+                        <Border BackgroundColor="#F8FAFC"
+                                Stroke="#E4E7EC"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="12,8"
+                                VerticalOptions="Center">
+                            <VerticalStackLayout Spacing="7">
+                                <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                                    <Label Text="●"
+                                           TextColor="#2E90FA"
+                                           FontSize="12"
+                                           VerticalOptions="Center" />
+                                    <Label x:Name="StatusLabel"
+                                           Text="Ready."
+                                           TextColor="#344054"
+                                           FontSize="14"
+                                           FontAttributes="Bold"
+                                           HorizontalTextAlignment="Center"
+                                           VerticalOptions="Center" />
+                                </HorizontalStackLayout>
+
+                                <Label x:Name="CurrentScanIpLabel"
+                                       Text="Current IP: --"
+                                       TextColor="#667085"
+                                       FontSize="12"
+                                       HorizontalTextAlignment="Center"
+                                       LineBreakMode="TailTruncation"
+                                       IsVisible="False" />
+
+                                <ProgressBar x:Name="ScanProgressBar"
+                                             Progress="0"
+                                             HeightRequest="5"
+                                             ProgressColor="#2E90FA"
+                                             BackgroundColor="#E4E7EC"
+                                             IsVisible="False" />
+                            </VerticalStackLayout>
+                        </Border>
+
+                        <Grid x:Name="ActionButtonsGrid"
+                              Grid.Column="1"
+                              ColumnDefinitions="*,*,*"
+                              ColumnSpacing="10"
+                              HorizontalOptions="End"
+                              WidthRequest="270">
+                            <Button x:Name="StartButton"
+                                    Text="Start"
+                                    Clicked="OnStartClicked"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    BackgroundColor="#0B3B8F"
+                                    TextColor="White" />
+                            <Button x:Name="StopButton"
+                                    Grid.Column="1"
+                                    Text="Stop"
+                                    Clicked="OnStopClicked"
+                                    IsEnabled="False"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    BackgroundColor="#EAECF0"
+                                    TextColor="#344054" />
+                            <Button x:Name="ClearButton"
+                                    Grid.Column="2"
+                                    Text="Clear"
+                                    Clicked="OnClearClicked"
+                                    Style="{StaticResource CommandButtonStyle}"
+                                    BackgroundColor="#4F46E5"
+                                    TextColor="White" />
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border x:Name="ResultsCard"
+                    Grid.Row="3"
+                    BackgroundColor="White"
+                    Stroke="#E4E7EC"
+                    StrokeShape="RoundRectangle 22"
+                    Padding="18">
+                <Border.Shadow>
+                    <Shadow Brush="#100B1226" Offset="0,6" Radius="16" Opacity="0.10" />
+                </Border.Shadow>
+
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+                    <Grid x:Name="ResultsHeaderGrid" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Connection test results"
+                                   FontSize="20"
+                                   FontAttributes="Bold"
+                                   TextColor="#101828" />
+                            <Label x:Name="ResultsSubtitleLabel"
+                                   Text="Each row shows latency, PingSucceeded, and TcpTestSucceeded."
+                                   FontSize="13"
+                                   TextColor="#667085" />
+                        </VerticalStackLayout>
+
+                        <Border x:Name="ResultsCountBadge"
+                                Grid.Column="1"
+                                BackgroundColor="#F2F4F7"
+                                StrokeThickness="0"
+                                StrokeShape="RoundRectangle 14"
+                                Padding="12,7"
+                                VerticalOptions="Center">
+                            <Label Text="{Binding Results.Count, StringFormat='{0} tested'}"
+                                   TextColor="#344054"
+                                   FontSize="13"
+                                   FontAttributes="Bold" />
+                        </Border>
+                    </Grid>
+
+                    <Border Grid.Row="1"
+                            BackgroundColor="#F8FAFC"
+                            StrokeThickness="0"
+                            StrokeShape="RoundRectangle 12"
+                            Padding="12,9">
+                        <Grid ColumnDefinitions="*,96,72,72">
+                            <Label Text="IP address"
+                                   Style="{StaticResource CaptionLabelStyle}" />
+                            <Label Grid.Column="1"
+                                   Text="Latency"
+                                   Style="{StaticResource CaptionLabelStyle}"
+                                   HorizontalTextAlignment="Center" />
+                            <Label Grid.Column="2"
+                                   Text="Ping"
+                                   Style="{StaticResource CaptionLabelStyle}"
+                                   HorizontalTextAlignment="Center" />
+                            <Label Grid.Column="3"
+                                   Text="TCP"
+                                   Style="{StaticResource CaptionLabelStyle}"
+                                   HorizontalTextAlignment="End" />
+                        </Grid>
+                    </Border>
+
+                    <CollectionView x:Name="ResultsView"
+                                    Grid.Row="2"
+                                    ItemsSource="{Binding Results}"
+                                    HeightRequest="360"
+                                    ItemsUpdatingScrollMode="KeepLastItemInView"
+                                    VerticalOptions="Fill"
+                                    VerticalScrollBarVisibility="Always">
+                        <CollectionView.EmptyView>
+                            <VerticalStackLayout Padding="0,34" Spacing="6" HorizontalOptions="Center">
+                                <Label Text="No test results yet"
+                                       TextColor="#344054"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       HorizontalTextAlignment="Center" />
+                                <Label Text="Start a scan to populate this table."
+                                       TextColor="#98A2B3"
+                                       FontSize="13"
+                                       HorizontalTextAlignment="Center" />
+                            </VerticalStackLayout>
+                        </CollectionView.EmptyView>
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="local:ScanResult">
+                                <Border Padding="12"
+                                        Margin="0,4"
+                                        BackgroundColor="#FFFFFF"
+                                        Stroke="#E4E7EC"
+                                        StrokeShape="RoundRectangle 12">
+                                    <Grid ColumnDefinitions="*,96,72,72" ColumnSpacing="8">
+                                        <Label Text="{Binding IpAddress}"
+                                               FontAttributes="Bold"
+                                               FontSize="14"
+                                               TextColor="#101828"
+                                               VerticalOptions="Center" />
+                                        <Label Grid.Column="1"
+                                               Text="{Binding RoundTripText}"
+                                               FontSize="13"
+                                               TextColor="#667085"
+                                               HorizontalTextAlignment="Center"
+                                               VerticalOptions="Center" />
+                                        <Border Grid.Column="2"
+                                                BackgroundColor="#EFF6FF"
+                                                StrokeThickness="0"
+                                                StrokeShape="RoundRectangle 12"
+                                                Padding="10,5"
+                                                HorizontalOptions="Center">
+                                            <Label Text="{Binding PingSucceededText}"
+                                                   TextColor="#1D4ED8"
+                                                   FontSize="12"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+                                        <Border Grid.Column="3"
+                                                BackgroundColor="#ECFDF3"
+                                                StrokeThickness="0"
+                                                StrokeShape="RoundRectangle 12"
+                                                Padding="10,5"
+                                                HorizontalOptions="End">
+                                            <Label Text="{Binding TcpTestSucceededText}"
+                                                   TextColor="#067647"
+                                                   FontSize="12"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Grid>
+            </Border>
+        </Grid>
     </ScrollView>
 </ContentPage>

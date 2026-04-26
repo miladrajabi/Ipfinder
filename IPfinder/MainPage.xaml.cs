@@ -1,8 +1,7 @@
+using IPfinder.Services;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Json;
-using System.Net.Sockets;
 
 namespace IPfinder;
 
@@ -12,12 +11,18 @@ public partial class MainPage : ContentPage
     private const int DefaultTimeoutMs = 1000;
     private const int DefaultConcurrency = 16;
     private const int MaxScanRange = 5000;
+    private const int CompactLayoutWidth = 980;
+    private const int ProgressUiUpdateInterval = 8;
+    private const int ResultFlushInterval = 12;
 
-    private static readonly HttpClient IpInfoClient = new();
+    private readonly IpInfoService _ipInfoService = new();
+    private readonly NetworkProbeService _networkProbeService = new();
+
+    private bool _isUpdatingIpInfo;
+    private bool _isCompactLayout;
+    private CancellationTokenSource? _scanCts;
 
     public ObservableCollection<ScanResult> Results { get; } = new();
-
-    private CancellationTokenSource? _scanCts;
 
     public MainPage()
     {
@@ -26,10 +31,22 @@ public partial class MainPage : ContentPage
         ApplyDefaultValues();
     }
 
+    protected override void OnSizeAllocated(double width, double height)
+    {
+        base.OnSizeAllocated(width, height);
+
+        if (width <= 0)
+        {
+            return;
+        }
+
+        ApplyResponsiveLayout(width < CompactLayoutWidth);
+    }
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-        await UpdateIpInfoAsync();
+        await SafeUpdateIpInfoAsync();
     }
 
     private async void OnStartClicked(object? sender, EventArgs e)
@@ -46,9 +63,41 @@ public partial class MainPage : ContentPage
         }
 
         Results.Clear();
-        _scanCts = new CancellationTokenSource();
+
+        var scanCts = new CancellationTokenSource();
+        _scanCts = scanCts;
+
+        var totalCount = configuration.Addresses.Count;
+        var startedCount = 0;
+        var completedCount = 0;
+        var resultFlushInProgress = 0;
+        var pendingResults = new ConcurrentQueue<ScanResult>();
+
         SetUiState(isScanning: true);
-        StatusLabel.Text = $"Scanning {configuration.Addresses.Count} IPs...";
+        await UpdateScanProgressAsync(0, totalCount, null);
+
+        async Task FlushResultsAsync()
+        {
+            if (Interlocked.Exchange(ref resultFlushInProgress, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                await RunOnMainThreadAsync(() =>
+                {
+                    while (pendingResults.TryDequeue(out var pendingResult))
+                    {
+                        Results.Add(pendingResult);
+                    }
+                });
+            }
+            finally
+            {
+                Volatile.Write(ref resultFlushInProgress, 0);
+            }
+        }
 
         try
         {
@@ -57,57 +106,53 @@ public partial class MainPage : ContentPage
                 new ParallelOptions
                 {
                     MaxDegreeOfParallelism = configuration.Concurrency,
-                    CancellationToken = _scanCts.Token
+                    CancellationToken = scanCts.Token
                 },
                 async (ip, ct) =>
                 {
-                    var result = await ScanTcpAsync(ip, configuration.Port, configuration.TimeoutMs, ct);
-                    if (result.Status == "Open")
+                    var started = Interlocked.Increment(ref startedCount);
+                    if (ShouldUpdateProgress(started, totalCount))
                     {
-                        MainThread.BeginInvokeOnMainThread(() => Results.Add(result));
+                        await UpdateScanProgressAsync(started, totalCount, ip);
+                    }
+
+                    var result = await _networkProbeService.ProbeAsync(
+                        ip,
+                        configuration.Port,
+                        configuration.TimeoutMs,
+                        ct);
+
+                    var completed = Interlocked.Increment(ref completedCount);
+                    pendingResults.Enqueue(result);
+
+                    if (completed % ResultFlushInterval == 0 || completed == totalCount)
+                    {
+                        await FlushResultsAsync();
                     }
                 });
 
-            StatusLabel.Text = "Finished.";
+            await FlushResultsAsync();
+            SetScanFinished(completedCount, totalCount);
         }
         catch (OperationCanceledException)
         {
-            StatusLabel.Text = "Scan stopped.";
+            SetScanStopped(completedCount, totalCount);
+        }
+        catch (Exception ex)
+        {
+            await RunOnMainThreadAsync(() =>
+            {
+                StatusLabel.Text = $"Scan failed: {ex.Message}";
+                CurrentScanIpLabel.Text = "Scan failed.";
+                CurrentScanIpLabel.IsVisible = true;
+            });
         }
         finally
         {
-            _scanCts?.Dispose();
+            await FlushResultsAsync();
+            scanCts.Dispose();
             _scanCts = null;
             SetUiState(isScanning: false);
-        }
-    }
-
-    private async Task<ScanResult> ScanTcpAsync(IPAddress ip, int port, int timeoutMs, CancellationToken cancellationToken)
-    {
-        using var client = new TcpClient();
-
-        try
-        {
-            var stopwatch = Stopwatch.StartNew();
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(timeoutMs);
-
-            await client.ConnectAsync(ip, port, timeoutCts.Token);
-            stopwatch.Stop();
-
-            return new ScanResult(ip.ToString(), "Open", stopwatch.ElapsedMilliseconds);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return new ScanResult(ip.ToString(), "Closed", 0);
-        }
-        catch (SocketException)
-        {
-            return new ScanResult(ip.ToString(), "Closed", 0);
-        }
-        catch (ObjectDisposedException)
-        {
-            return new ScanResult(ip.ToString(), "Closed", 0);
         }
     }
 
@@ -122,6 +167,12 @@ public partial class MainPage : ContentPage
 
         Results.Clear();
         StatusLabel.Text = "Ready.";
+        ResetScanProgress();
+    }
+
+    private async void OnRefreshIpClicked(object? sender, EventArgs e)
+    {
+        await SafeUpdateIpInfoAsync();
     }
 
     private bool TryGetScanConfiguration(
@@ -158,29 +209,31 @@ public partial class MainPage : ContentPage
             return false;
         }
 
-        var start = IpToUInt32(startIp);
-        var end = IpToUInt32(endIp);
+        concurrency = NormalizeConcurrency(concurrency);
 
-        if (start > end)
+        if (!IpAddressRange.TryCreate(
+                startIp,
+                endIp,
+                MaxScanRange,
+                out var addresses,
+                out errorTitle,
+                out errorMessage))
         {
-            errorMessage = "Start IP must be less than or equal to End IP.";
             return false;
         }
-
-        var totalCount = end - start + 1;
-        if (totalCount > MaxScanRange)
-        {
-            errorTitle = "Limit";
-            errorMessage = $"Max {MaxScanRange} IPs per scan.";
-            return false;
-        }
-
-        var addresses = Enumerable.Range(0, (int)totalCount)
-            .Select(index => UInt32ToIp(start + (uint)index))
-            .ToList();
 
         configuration = new ScanConfiguration(addresses, port, timeoutMs, concurrency);
         return true;
+    }
+
+    private static int NormalizeConcurrency(int requestedConcurrency)
+    {
+        var maxConcurrency = DeviceInfo.Current.Platform == DevicePlatform.Android ||
+                             DeviceInfo.Current.Platform == DevicePlatform.iOS
+            ? 6
+            : 32;
+
+        return Math.Clamp(requestedConcurrency, 1, maxConcurrency);
     }
 
     private static bool TryParsePositiveInt(string? value, int fallback, out int result)
@@ -210,74 +263,318 @@ public partial class MainPage : ContentPage
         PortEntry.IsEnabled = !isScanning;
         TimeoutEntry.IsEnabled = !isScanning;
         ConcurrencyEntry.IsEnabled = !isScanning;
+        SetRefreshButtonState();
+    }
+
+    private Task UpdateScanProgressAsync(int current, int total, IPAddress? currentIp)
+    {
+        return RunOnMainThreadAsync(() =>
+        {
+            StatusLabel.Text = $"Scanning {current:N0}/{total:N0}";
+            CurrentScanIpLabel.Text = currentIp is null
+                ? "Current IP: --"
+                : $"Current IP: {currentIp}";
+            CurrentScanIpLabel.IsVisible = true;
+            ScanProgressBar.IsVisible = true;
+            ScanProgressBar.Progress = total == 0 ? 0 : Math.Clamp((double)current / total, 0, 1);
+        });
+    }
+
+    private void SetScanFinished(int completed, int total)
+    {
+        StatusLabel.Text = $"Finished. {completed:N0}/{total:N0} scanned.";
+        CurrentScanIpLabel.Text = "Scan complete.";
+        CurrentScanIpLabel.IsVisible = true;
+        ScanProgressBar.IsVisible = true;
+        ScanProgressBar.Progress = 1;
+    }
+
+    private void SetScanStopped(int completed, int total)
+    {
+        StatusLabel.Text = $"Stopped at {completed:N0}/{total:N0}.";
+        CurrentScanIpLabel.Text = "Scan stopped.";
+        CurrentScanIpLabel.IsVisible = true;
+    }
+
+    private void ResetScanProgress()
+    {
+        CurrentScanIpLabel.Text = "Current IP: --";
+        CurrentScanIpLabel.IsVisible = false;
+        ScanProgressBar.Progress = 0;
+        ScanProgressBar.IsVisible = false;
+    }
+
+    private static Task RunOnMainThreadAsync(Action action)
+    {
+        if (MainThread.IsMainThread)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return MainThread.InvokeOnMainThreadAsync(action);
+    }
+
+    private void SetRefreshButtonState()
+    {
+        var isEnabled = _scanCts is null && !_isUpdatingIpInfo;
+        RefreshIpButton.IsEnabled = isEnabled;
+        RefreshIpButton.Opacity = isEnabled ? 1 : 0.55;
+    }
+
+    private static bool ShouldUpdateProgress(int current, int total)
+    {
+        return current == 0 ||
+               current == 1 ||
+               current == total ||
+               current % ProgressUiUpdateInterval == 0;
+    }
+
+    private void ApplyResponsiveLayout(bool useCompactLayout)
+    {
+        if (_isCompactLayout == useCompactLayout)
+        {
+            return;
+        }
+
+        _isCompactLayout = useCompactLayout;
+
+        if (useCompactLayout)
+        {
+            RootGrid.Padding = new Thickness(12, 8, 12, 10);
+            RootGrid.RowSpacing = 8;
+            PageTitleLabel.FontSize = 22;
+            PageSubtitleLabel.IsVisible = false;
+            HeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            HeaderBadge.IsVisible = false;
+
+            IpInfoCard.Padding = new Thickness(12);
+            MyIpLabel.FontSize = 16;
+            MyCountryLabel.FontSize = 12;
+            MyCountryLabel.MaxLines = 2;
+            IpInfoCard.HeightRequest = -1;
+            IpInfoCard.MinimumHeightRequest = 118;
+
+            ScanSetupCard.Padding = new Thickness(10);
+            ScanSetupGrid.RowSpacing = 10;
+            ScanSubtitleLabel.IsVisible = false;
+            ScanHeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            ScanModeBadge.IsVisible = false;
+
+            AddressInputsGrid.RowDefinitions = CreateAutoRows(3);
+            AddressInputsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            MoveToGrid(StartIpCard, 0, 0);
+            MoveToGrid(EndIpCard, 0, 1);
+            MoveToGrid(PortCard, 0, 2);
+            SetInputCardPadding(10, 6);
+            SetEntryHeight(32);
+
+            OptionsInputsGrid.RowDefinitions = CreateAutoRows(2);
+            OptionsInputsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            MoveToGrid(TimeoutCard, 0, 0);
+            MoveToGrid(ConcurrencyCard, 0, 1);
+
+            ScanControlsGrid.RowDefinitions = CreateAutoRows(2);
+            ScanControlsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            Grid.SetColumn(ActionButtonsGrid, 0);
+            Grid.SetRow(ActionButtonsGrid, 1);
+            ActionButtonsGrid.WidthRequest = -1;
+            ActionButtonsGrid.HorizontalOptions = LayoutOptions.Fill;
+
+            ResultsCard.Padding = new Thickness(12);
+            ResultsView.HeightRequest = 260;
+            ResultsSubtitleLabel.IsVisible = false;
+            ResultsHeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star)
+            };
+            ResultsHeaderGrid.RowDefinitions = CreateAutoRows(2);
+            MoveToGrid(ResultsCountBadge, 0, 1);
+            ResultsCountBadge.HorizontalOptions = LayoutOptions.Start;
+        }
+        else
+        {
+            RootGrid.Padding = new Thickness(28, 24, 28, 32);
+            RootGrid.RowSpacing = 18;
+            PageTitleLabel.FontSize = 32;
+            PageSubtitleLabel.IsVisible = true;
+            HeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            };
+            HeaderBadge.IsVisible = true;
+
+            IpInfoCard.Padding = new Thickness(22);
+            MyIpLabel.FontSize = 22;
+            MyCountryLabel.FontSize = 14;
+            MyCountryLabel.MaxLines = 2;
+            IpInfoCard.HeightRequest = -1;
+            IpInfoCard.MinimumHeightRequest = -1;
+
+            ScanSetupCard.Padding = new Thickness(20);
+            ScanSetupGrid.RowSpacing = 18;
+            ScanSubtitleLabel.IsVisible = true;
+            ScanHeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            };
+            ScanModeBadge.IsVisible = true;
+
+            AddressInputsGrid.RowDefinitions = new RowDefinitionCollection();
+            AddressInputsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Star),
+                new(new GridLength(0.55, GridUnitType.Star))
+            };
+            MoveToGrid(StartIpCard, 0, 0);
+            MoveToGrid(EndIpCard, 1, 0);
+            MoveToGrid(PortCard, 2, 0);
+            SetInputCardPadding(14, 10);
+            SetEntryHeight(36);
+
+            OptionsInputsGrid.RowDefinitions = new RowDefinitionCollection();
+            OptionsInputsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Star)
+            };
+            MoveToGrid(TimeoutCard, 0, 0);
+            MoveToGrid(ConcurrencyCard, 1, 0);
+
+            ScanControlsGrid.RowDefinitions = new RowDefinitionCollection();
+            ScanControlsGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            };
+            Grid.SetColumn(ActionButtonsGrid, 1);
+            Grid.SetRow(ActionButtonsGrid, 0);
+            ActionButtonsGrid.WidthRequest = 270;
+            ActionButtonsGrid.HorizontalOptions = LayoutOptions.End;
+
+            ResultsCard.Padding = new Thickness(18);
+            ResultsView.HeightRequest = 360;
+            ResultsSubtitleLabel.IsVisible = true;
+            ResultsHeaderGrid.ColumnDefinitions = new ColumnDefinitionCollection
+            {
+                new(GridLength.Star),
+                new(GridLength.Auto)
+            };
+            ResultsHeaderGrid.RowDefinitions = new RowDefinitionCollection();
+            MoveToGrid(ResultsCountBadge, 1, 0);
+            ResultsCountBadge.HorizontalOptions = LayoutOptions.End;
+        }
+    }
+
+    private static RowDefinitionCollection CreateAutoRows(int count)
+    {
+        var rows = new RowDefinitionCollection();
+        for (var i = 0; i < count; i++)
+        {
+            rows.Add(new RowDefinition(GridLength.Auto));
+        }
+
+        return rows;
+    }
+
+    private static void MoveToGrid(BindableObject view, int column, int row)
+    {
+        Grid.SetColumn(view, column);
+        Grid.SetRow(view, row);
+    }
+
+    private void SetInputCardPadding(double horizontal, double vertical)
+    {
+        var padding = new Thickness(horizontal, vertical);
+        StartIpCard.Padding = padding;
+        EndIpCard.Padding = padding;
+        PortCard.Padding = padding;
+        TimeoutCard.Padding = padding;
+        ConcurrencyCard.Padding = padding;
+    }
+
+    private void SetEntryHeight(double height)
+    {
+        StartIpEntry.HeightRequest = height;
+        EndIpEntry.HeightRequest = height;
+        PortEntry.HeightRequest = height;
+        TimeoutEntry.HeightRequest = height;
+        ConcurrencyEntry.HeightRequest = height;
     }
 
     private void ApplyDefaultValues()
     {
-        StartIpEntry.Text = "172.64.0.0";
-        EndIpEntry.Text = "172.64.15.255";
+        StartIpEntry.Text = "188.114.96.0";
+        EndIpEntry.Text = "188.114.99.255";
         PortEntry.Text = DefaultPort.ToString();
         TimeoutEntry.Text = DefaultTimeoutMs.ToString();
-        ConcurrencyEntry.Text = DefaultConcurrency.ToString();
-    }
-
-    private static uint IpToUInt32(IPAddress ipAddress)
-    {
-        var bytes = ipAddress.GetAddressBytes();
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(bytes);
-        }
-
-        return BitConverter.ToUInt32(bytes, 0);
-    }
-
-    private static IPAddress UInt32ToIp(uint value)
-    {
-        var bytes = BitConverter.GetBytes(value);
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(bytes);
-        }
-
-        return new IPAddress(bytes);
+        ConcurrencyEntry.Text = NormalizeConcurrency(DefaultConcurrency).ToString();
     }
 
     private async Task UpdateIpInfoAsync()
     {
         try
         {
-            var response = await IpInfoClient.GetFromJsonAsync<IpLocationResponse>("http://ip-api.com/json/");
-            if (response is null)
+            await RunOnMainThreadAsync(() =>
             {
-                SetIpInfoUnavailable();
-                return;
-            }
+                MyIpLabel.Text = "Loading IP...";
+                MyCountryLabel.Text = "Loading location...";
+            });
 
-            MainThread.BeginInvokeOnMainThread(() =>
+            var info = await _ipInfoService.GetCurrentAsync();
+
+            await RunOnMainThreadAsync(() =>
             {
-                MyIpLabel.Text = $"🌐 IP: {response.query}";
-                MyCountryLabel.Text = $"📍 Location: {response.country} ({response.city}) - {response.isp}";
+                MyIpLabel.Text = $"IP: {info.IpAddress}";
+                MyCountryLabel.Text = info.LocationText;
             });
         }
         catch
         {
-            SetIpInfoUnavailable();
+            await RunOnMainThreadAsync(() =>
+            {
+                MyIpLabel.Text = "Connection error";
+                MyCountryLabel.Text = "Location service is temporarily unavailable.";
+            });
         }
     }
 
-    private void SetIpInfoUnavailable()
+    private async Task SafeUpdateIpInfoAsync()
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        if (_isUpdatingIpInfo)
         {
-            MyIpLabel.Text = "خطا در اتصال";
-            MyCountryLabel.Text = "احتمالاً فیلترشکن خاموش است یا سرویس در دسترس نیست.";
-        });
-    }
+            return;
+        }
 
-    private readonly record struct ScanConfiguration(
-        List<IPAddress> Addresses,
-        int Port,
-        int TimeoutMs,
-        int Concurrency);
+        _isUpdatingIpInfo = true;
+        SetRefreshButtonState();
+
+        try
+        {
+            await UpdateIpInfoAsync();
+        }
+        finally
+        {
+            _isUpdatingIpInfo = false;
+            SetRefreshButtonState();
+        }
+    }
 }
